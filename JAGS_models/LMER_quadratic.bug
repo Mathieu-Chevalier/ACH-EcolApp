@@ -1,0 +1,85 @@
+#---------------------------------------------------------------------------------------------------------------------
+#
+# Description of the hirerachical Bayesian mixed effect model 
+#
+# This model was fitted for each group with distances measured with 8 different methodological settings:
+# - Distance to the centroid within a convex hull in the geographic space 
+# - Distance to the centroid within a convex hull in the environmental space 
+# - Distance to the margin within a convex hull in the geographic space 
+# - Distance to the margin within a convex hull in the environmental space 
+# - Distance to the centroid within a kernel desity in the geographic space 
+# - Distance to the centroid within a kernel desity in the environmental space 
+# - Distance to the margin within a kernel desity in the geographic space 
+# - Distance to the margin within a kernel desity in the environmental space 
+# 
+# Definition of input variables:
+# - Nsp: number of species 
+# - Npop: number of population for the species considered 
+# - Y: log-scaled abundance
+# - Dist: scaled distance
+#
+#---------------------------------------------------------------------------------------------------------------------
+
+model{
+  
+    ### Likelihood 	
+	for(i in 1:Nsp){
+		for(j in 1:Npop[i]){
+			Y[i,j] ~ dnorm(mu[i,j], tau)
+			mu[i,j] <- alpha[i] + beta[i]*Dist[i,j] + beta.quad[i]*pow(Dist[i,j], 2)
+			
+			# # Calculate log likelihood
+			# log.like[i,j] <- logdensity.norm(Y[i,j], mu[i,j], tau)
+		}
+	}
+	
+	### Priors
+	
+	#--- prior for the standard deviation of the normal distribution (process error variance)
+	tau <- pow(sigma,-2)
+	sigma ~ dt(0,1,1)T(0,)	
+	
+	#--- priors for alpha and beta
+	for(i in 1:Nsp){
+		B.hat[i,1] <- mean.alpha
+		B.hat[i,2] <- mean.beta
+		alpha[i] <- B[i,1]
+		beta[i] <- B[i,2]
+		B[i,1:2] ~ dmnorm(B.hat[i,1:2],Tau.B[1:2,1:2]) 
+		beta.quad[i] ~ dnorm(mean.quad,tau.quad)
+	}
+	mean.alpha ~ dnorm(0,1E-3)
+	sd.alpha ~ dt(0,1,1)T(1E-3,)
+	mean.beta ~ dnorm(0,1E-3)
+	sd.beta ~ dt(0,1,1)T(1E-3,)
+	
+	mean.quad ~ dnorm(0,1E-3)
+	tau.quad <- pow(sd.quad,-2)
+	sd.quad ~ dt(0,1,1)T(1E-3,)
+	
+	#--- assembling the variance-covariance matrix for the random effects
+	Sigma.B[1,1] <- pow(sd.alpha,2) # variance of alpha
+	Sigma.B[2,2] <- pow(sd.beta,2) # variance of beta
+	Sigma.B[1,2] <- rho*sd.alpha*sd.beta # covariance
+	Sigma.B[2,1] <- Sigma.B[1,2] # symmetry of the matrix
+	rho ~ dunif(-0.99,0.99) # correlation between alpha and beta
+	Tau.B[1:2,1:2] <- inverse(Sigma.B[1:2,1:2]) # precision matrix
+	
+	### Posterior predictive checks (Standardized Pearson Residuals)
+	for(i in 1:Nsp){
+		for(j in 1:Npop[i]){
+			res.1[i,j] <- (Y[i,j]-mu[i,j])/sigma      
+			Y.new[i,j] ~ dnorm(mu[i,j],tau) 
+			res.2[i,j] <- (Y.new[i,j]-mu[i,j])/sigma	
+		}
+		tmp.fit[i] <- sum(pow(res.1[i,1:Npop[i]],2))
+		tmp.fit.new[i] <- sum(pow(res.2[i,1:Npop[i]],2))
+	}
+    fit <- sum(tmp.fit[])
+    fit.new <- sum(tmp.fit.new[])
+    test <- step(fit.new-fit)
+    bpvalue <- mean(test)
+	
+}
+
+
